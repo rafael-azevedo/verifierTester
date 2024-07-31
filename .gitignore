@@ -1,0 +1,5 @@
+clusterLists.old
+testRuns
+bin/verifierTester
+clusterLists/*
+exports.local

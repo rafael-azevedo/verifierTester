@@ -1,0 +1,5 @@
+export LEGACYBIN= \
+export LEGACYVERSION= \
+export PROBEBINARY= \
+export PROBEVERSION= \
+export CLUSTERLIST= 
