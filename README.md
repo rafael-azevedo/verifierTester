@@ -34,3 +34,17 @@ It will output the results in a json struct to a file in the temp folder
 ```bash
 "/tmp/" + time.Now().Format(time.RFC3339) + "_verifierRun"
 ```
+
+Json struct is the following 
+```golang
+// Define the struct to match the JSON structure
+type VerifierRun struct {
+	Duration      float64 `json:"duration"`
+	CID           string  `json:"cid"`
+	OsdctlVersion string  `json:"osdctl_version"`
+	Probe         string  `json:"probe"`
+	Arch          string  `json:"arch"`
+	Output        string  `json:"output"`
+	Error         bool    `json:"error"`
+}
+```
