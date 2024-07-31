@@ -36,6 +36,8 @@ It will output the results in a json struct to a file in the temp folder
 ```
 
 Json struct is the following 
+
+The output string will contain the stdOut and stdErr from the osdctl binary execution
 ```golang
 // Define the struct to match the JSON structure
 type VerifierRun struct {
