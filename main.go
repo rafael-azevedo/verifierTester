@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,63 +25,93 @@ type VerifierRun struct {
 	Output        string  `json:"output"`
 	Error         bool    `json:"error"`
 }
+type stringFlag struct {
+	set   bool
+	value string
+}
 
+func (sf *stringFlag) Set(x string) error {
+	sf.value = x
+	sf.set = true
+	return nil
+}
+
+func (sf *stringFlag) String() string {
+	return sf.value
+}
+
+var legacyBinary, legacyVersion, probeBinary, probeVersion, clusterListFile, clusterID, convert, jsonFile stringFlag
+
+func init() {
+	flag.Var(&convert, "convert", "set this flag to convert jsonFile to csv")
+	flag.Var(&legacyBinary, "legacyBinary", "legacy binary path")
+	flag.Var(&legacyVersion, "legacyVersion", "legacy binary version")
+	flag.Var(&probeBinary, "probeBinary", "legacy binary path")
+	flag.Var(&probeVersion, "probeVersion", "legacy binary version or commit")
+	flag.Var(&clusterID, "clusterID", "clusterID")
+	flag.Var(&clusterListFile, "clusterListFile", "path to list of cluster ids")
+	flag.Var(&jsonFile, "jsonFile", "path to json file to convert to csv")
+}
 func main() {
-	var legacyBinary, legacyVersion, probeBinary, probeVersion, clusterListFile, clusterID string
-	flag.StringVar(&legacyBinary, "legacyBinary", "", "legacy binary path")
-	flag.StringVar(&legacyVersion, "legacyVersion", "", "legacy binary version")
-	flag.StringVar(&probeBinary, "probeBinary", "", "legacy binary path")
-	flag.StringVar(&probeVersion, "probeVersion", "", "legacy binary version or commit")
-	flag.StringVar(&clusterID, "clusterID", "", "clusterID")
-	flag.StringVar(&clusterListFile, "clusterListFile", "", "clusterListFile")
 	flag.Parse()
+	switch {
+	case convert.set:
+		if !jsonFile.set {
+			fmt.Println("no -jsonFile provided")
+			os.Exit(1)
+		}
+		err := convertFiletoCSV(jsonFile.value)
+		if err != nil {
+			fmt.Printf("error converting to csv :: %s \n", err)
+		}
+	default:
+		RunTests()
+	}
+}
 
+func RunTests() error {
 	fmt.Printf(" -----    Input Parameters    -----\n")
 	fmt.Printf("------------------------------------\n")
-	fmt.Printf(" -----    legacyBinary :: %s || legacyVersion   :: %s    -----\n", legacyBinary, legacyVersion)
-	fmt.Printf(" -----    probeBinary :: %s || probeVersion   :: %s    -----\n", probeBinary, probeVersion)
-	fmt.Printf(" -----    clusterListFile :: %s || clusterID   :: %s    -----\n", clusterListFile, clusterID)
+	fmt.Printf(" -----    legacyBinary :: %s || legacyVersion   :: %s    -----\n", legacyBinary.value, legacyVersion.value)
+	fmt.Printf(" -----    probeBinary :: %s || probeVersion   :: %s    -----\n", probeBinary.value, probeVersion.value)
+	fmt.Printf(" -----    clusterListFile :: %s || clusterID   :: %s    -----\n", clusterListFile.value, clusterID.value)
 
-	if legacyBinary == "" || probeBinary == "" || legacyVersion == "" || probeVersion == "" {
-		fmt.Println("You must provide -legacyBinary, -legacyVersion, -probeBinary, -probeVersion and -clusterID for this program to function")
-		os.Exit(1)
+	if !legacyBinary.set || !probeBinary.set || !legacyVersion.set || !probeVersion.set {
+		return errors.New("you must provide -legacyBinary, -legacyVersion, -probeBinary, -probeVersion and -clusterID for this program to function")
 	}
 
-	if (clusterID == "" && clusterListFile == "") || (clusterID != "" && clusterListFile != "") {
-		fmt.Println("You must provide only one of the following clusterID or clusterList for this program to function")
-		os.Exit(1)
+	if (clusterID.set && clusterListFile.set) || (!clusterID.set && !clusterListFile.set) {
+		return errors.New("you must provide only one of the following clusterID or clusterList for this program to function")
 	}
+
 	runInputs := []struct {
 		bin, version, prob, arch string
 	}{
-		{legacyBinary, legacyVersion, "legacy", "x86"},
-		{probeBinary, probeVersion, "curl", "x86"},
-		{probeBinary, probeVersion, "curl", "arm64"},
+		{legacyBinary.value, legacyVersion.value, "legacy", "x86"},
+		{probeBinary.value, probeVersion.value, "curl", "x86"},
+		{probeBinary.value, probeVersion.value, "curl", "arm64"},
 	}
 
 	clusterIDs := []string{}
-	if clusterID != "" {
-		clusterIDs = append(clusterIDs, clusterID)
+	if clusterID.set {
+		clusterIDs = append(clusterIDs, clusterID.value)
 	}
-	if clusterListFile != "" {
-		content, err := os.ReadFile(clusterListFile)
+	if clusterListFile.set {
+		content, err := os.ReadFile(clusterListFile.value)
 		if err != nil {
-			fmt.Printf("issue reading file, %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("issue reading file, %s", err)
 		}
 		clusterIDs = append(clusterIDs, strings.Split(string(content), "\n")...)
 	}
 
 	outfile, err := os.Create("/tmp/" + time.Now().Format(time.RFC3339) + "_verifierRun")
 	if err != nil {
-		fmt.Printf("issue writing file, %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("issue writing file, %s", err)
 	}
 
 	outfileTmp, err := os.Create("/tmp/" + time.Now().Format(time.RFC3339) + "_verifierRun_tmp")
 	if err != nil {
-		fmt.Printf("issue writing file, %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("issue writing file, %s", err)
 	}
 
 	defer outfile.Close()
@@ -98,8 +131,7 @@ func main() {
 			// write to tmp file
 			data, err := json.MarshalIndent(v1, "", " ")
 			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+				return err
 			}
 			fmt.Fprintf(outfileTmp, "\n %s ,", string(data))
 		}
@@ -108,16 +140,15 @@ func main() {
 
 	data, err := json.MarshalIndent(verifierRuns, "", " ")
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 
 	written, err := outfile.WriteString(string(data))
 	if err != nil {
-		fmt.Printf("issue writing file, %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("issue writing file, %s", err)
 	}
 	fmt.Printf("%d bytes written to file %s", written, outfile.Name())
+	return nil
 }
 
 func veriferToJson(binary, osdctlVersion, clusterID, probe, arch string) (VerifierRun, error) {
@@ -176,5 +207,51 @@ func execVerifier(binary, clusterID, cpuArch string, buf *bytes.Buffer) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (VerifierRun) CSVheader(w io.Writer) {
+	cw := csv.NewWriter(w)
+	cw.Write([]string{"duration", "cid", "osdctl_version", "probe", "arch", "output", "error"})
+	cw.Flush()
+}
+
+func (vr VerifierRun) CSVrow(w io.Writer) {
+	cw := csv.NewWriter(w)
+	cw.Write([]string{strconv.FormatFloat(vr.Duration, 'f', -1, 64), vr.CID, vr.OsdctlVersion, vr.Probe, vr.Arch, strconv.FormatBool(vr.Error)})
+	cw.Flush()
+}
+
+func verifierRunsToCSV(verifierRuns []VerifierRun, w io.Writer) {
+	verifierRuns[0].CSVheader(w)
+	for _, vr := range verifierRuns {
+		vr.CSVrow(w)
+	}
+}
+
+func convertFiletoCSV(fileName string) error {
+	// vsFile := struct {
+	// 	VS []VerifierRun
+	// }{}
+	var vsFile []VerifierRun
+	content, err := os.ReadFile(fileName)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(content, &vsFile)
+	if err != nil {
+		return err
+	}
+
+	csvFile, err := os.Create("/tmp/" + time.Now().Format(time.RFC3339) + "_verifierRuns.csv")
+	if err != nil {
+		return err
+	}
+	defer csvFile.Close()
+
+	verifierRunsToCSV(vsFile, csvFile)
+	fmt.Printf("------------------------------------\n")
+	fmt.Printf("Converted %s to csv %s\n", fileName, csvFile.Name())
+	fmt.Printf("------------------------------------\n")
 	return nil
 }
