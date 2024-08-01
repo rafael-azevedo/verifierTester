@@ -50,3 +50,9 @@ type VerifierRun struct {
 	Error         bool    `json:"error"`
 }
 ```
+
+You can also convert the json file to csv by using the following command 
+
+```bash
+bin/verifierTester.go -convert=true -jsonFile={path to json output file}
+```
