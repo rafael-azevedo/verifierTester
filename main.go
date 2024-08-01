@@ -218,7 +218,7 @@ func (VerifierRun) CSVheader(w io.Writer) {
 
 func (vr VerifierRun) CSVrow(w io.Writer) {
 	cw := csv.NewWriter(w)
-	cw.Write([]string{strconv.FormatFloat(vr.Duration, 'f', -1, 64), vr.CID, vr.OsdctlVersion, vr.Probe, vr.Arch, strconv.FormatBool(vr.Error)})
+	cw.Write([]string{strconv.FormatFloat(vr.Duration, 'f', -1, 64), vr.CID, vr.OsdctlVersion, vr.Probe, vr.Arch, vr.Output, strconv.FormatBool(vr.Error)})
 	cw.Flush()
 }
 
